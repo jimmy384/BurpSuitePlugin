@@ -1,5 +1,8 @@
  package burp;
  
+ import burp.utils.ResponseClassifier;
+ import burp.utils.ResponseClassifier.ResponseType;
+
  import java.awt.Color;
  import java.awt.Component;
  import java.awt.GridLayout;
@@ -64,6 +67,7 @@
             String data_d2 = ""; // 低权限数据包2的改动, 配置区域
    String universal_cookie = "";
    String xy_version = "1.4_魔改版";
+   private ResponseClassifier classifier;
  
  
  
@@ -75,12 +79,12 @@
      this.stdout.println("version:" + this.xy_version);
  
  
- 
      
      this.callbacks = callbacks;
  
      
      this.helpers = callbacks.getHelpers();
+     this.classifier = new ResponseClassifier(callbacks);
  
      
      callbacks.setExtensionName("xia Yue V" + this.xy_version);
@@ -576,10 +580,21 @@
      
      int id = ++this.conut;
             // 低权限数据包2的改动, 调整了LogEntry构造方法
-     this.log.add(new LogEntry(id, this.helpers.analyzeRequest(baseRequestResponse).getMethod(), this.callbacks.saveBuffersToTempFiles(baseRequestResponse), this.callbacks.saveBuffersToTempFiles(requestResponse_y), this.callbacks.saveBuffersToTempFiles(requestResponse_w), this.callbacks.saveBuffersToTempFiles(requestResponse_d2), String.valueOf(this.helpers.analyzeRequest(baseRequestResponse).getUrl()), original_len, low_len_data, original_len_data, low2_len_data));
- 
- 
- 
+
+       IRequestInfo iRequestInfo = this.helpers.analyzeRequest(baseRequestResponse);
+       IHttpRequestResponsePersisted persisted_origin = this.callbacks.saveBuffersToTempFiles(baseRequestResponse);
+       IHttpRequestResponsePersisted persisted_d1 = this.callbacks.saveBuffersToTempFiles(requestResponse_y);
+       IHttpRequestResponsePersisted persisted_unauthorized = this.callbacks.saveBuffersToTempFiles(requestResponse_w);
+       IHttpRequestResponsePersisted persisted_d2 = this.callbacks.saveBuffersToTempFiles(requestResponse_d2);
+       ResponseType responseType_origin = classifier.classifyResponse(persisted_origin);
+       ResponseType responseType_d1 = classifier.classifyResponse(persisted_d1);
+       ResponseType responseType_unauthorized = classifier.classifyResponse(persisted_unauthorized);
+       ResponseType responseType_d2 = classifier.classifyResponse(persisted_d2);
+
+       this.log.add(new LogEntry(id, iRequestInfo.getMethod(), persisted_origin, persisted_d1, persisted_unauthorized, persisted_d2,
+               String.valueOf(iRequestInfo.getUrl()), original_len, low_len_data, original_len_data, low2_len_data,
+               responseType_origin, responseType_d1, responseType_unauthorized, responseType_d2
+       ));
      
      fireTableDataChanged();
      
@@ -658,11 +673,11 @@
        case 3:
          return Integer.valueOf(logEntry.original_len);
        case 4:
-         return logEntry.low_len;
+         return logEntry.low_len + "(" + logEntry.responseType_d1 + ")";
        case 5:
-         return logEntry.Unauthorized_len;
-                case 6: // 低权限数据包2的改动, 表格增加了一列, 6改成7
-                  return logEntry.low2_len_data;
+         return logEntry.Unauthorized_len + "(" + logEntry.responseType_unauthorized + ")";
+        case 6: // 低权限数据包2的改动, 表格增加了一列, 6改成7
+          return logEntry.low2_len_data + "(" + logEntry.responseType_d2 + ")";
      } 
      return "";
    }
@@ -757,9 +772,22 @@
      final String low_len;
      final String Unauthorized_len;
               final String low2_len_data; // 低权限数据包2的改动,
+       final ResponseType responseType_origin;
+       final ResponseType responseType_d1;
+       final ResponseType responseType_unauthorized;
+       final ResponseType responseType_d2;
 
                 // 低权限数据包2的改动, 调整了构造方法入参
-     LogEntry(int id, String Method, IHttpRequestResponsePersisted requestResponse, IHttpRequestResponsePersisted requestResponse_1, IHttpRequestResponsePersisted requestResponse_2, IHttpRequestResponsePersisted requestResponse_3, String url, int original_len, String low_len, String Unauthorized_len, String low2_len_data) {
+     LogEntry(int id, String Method,
+              IHttpRequestResponsePersisted requestResponse,
+              IHttpRequestResponsePersisted requestResponse_1,
+              IHttpRequestResponsePersisted requestResponse_2,
+              IHttpRequestResponsePersisted requestResponse_3,
+              String url, int original_len, String low_len, String Unauthorized_len, String low2_len_data,
+              ResponseType responseType_origin,
+              ResponseType responseType_d1,
+              ResponseType responseType_unauthorized,
+              ResponseType responseType_d2) {
        this.id = id;
        this.Method = Method;
        this.requestResponse = requestResponse;
@@ -771,6 +799,10 @@
        this.low_len = low_len;
        this.Unauthorized_len = Unauthorized_len;
                 this.low2_len_data = low2_len_data; // 低权限数据包2的改动,
+         this.responseType_origin = responseType_origin;
+         this.responseType_d1 = responseType_d1;
+         this.responseType_unauthorized = responseType_unauthorized;
+         this.responseType_d2 = responseType_d2;
      }
    }
  
