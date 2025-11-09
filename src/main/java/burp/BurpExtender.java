@@ -48,7 +48,7 @@ public class BurpExtender
     List<String> unauthorizedHeaderList = new ArrayList<>();
     String otherConfig = "";
     String universal_cookie = "";
-    String xy_version = "1.4_魔改版";
+    String xy_version = "1.5_魔改版";
     private ResponseClassifier classifier;
     private JCheckBox conclusionCkb;
     private static HashSet<String> unauthorizedUrlWhiteSet = new HashSet<>();
@@ -293,6 +293,11 @@ public class BurpExtender
                 callbacks.customizeUiComponent(jp);
                 callbacks.customizeUiComponent(BurpExtender.this.tabs);
                 callbacks.addSuiteTab(BurpExtender.this);
+
+                HttpExecutorTab httpExecutorTab = new HttpExecutorTab(callbacks, helpers);
+                httpExecutorTab.buildUi();
+                callbacks.addSuiteTab(httpExecutorTab);
+
                 callbacks.registerHttpListener(BurpExtender.this);
                 callbacks.registerScannerCheck(BurpExtender.this);
             }
