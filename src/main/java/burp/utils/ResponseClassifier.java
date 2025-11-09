@@ -41,7 +41,7 @@ public class ResponseClassifier {
         try {
             byte[] response = message.getResponse();
             if (response == null) {
-                return ResponseType.OTHER;
+                return ResponseType.API_ERROR;
             }
 
             IResponseInfo responseInfo = helpers.analyzeResponse(response);
@@ -62,11 +62,11 @@ public class ResponseClassifier {
                 return ResponseType.API_ERROR;
             }
 
-            return ResponseType.OTHER;
+            return ResponseType.API_ERROR;
 
         } catch (Exception e) {
             callbacks.printError("分类响应时出错: " + e.getMessage());
-            return ResponseType.OTHER;
+            return ResponseType.API_ERROR;
         }
     }
 
@@ -141,7 +141,7 @@ public class ResponseClassifier {
         try {
             byte[] response = message.getResponse();
             if (response == null) {
-                result.setType(ResponseType.OTHER);
+                result.setType(ResponseType.API_ERROR);
                 result.setReason("响应为空");
                 return result;
             }
@@ -161,7 +161,7 @@ public class ResponseClassifier {
             result.setReason(getClassificationReason(type, responseInfo, bodyBytes));
 
         } catch (Exception e) {
-            result.setType(ResponseType.OTHER);
+            result.setType(ResponseType.API_ERROR);
             result.setReason("分类出错: " + e.getMessage());
         }
 
@@ -185,8 +185,38 @@ public class ResponseClassifier {
     public enum ResponseType {
         SUCCESS,        // 成功的请求
         AUTH_FAILURE,   // 鉴权失败
-        API_ERROR,      // 普通接口报错
-        OTHER          // 其他类型
+        API_ERROR      // 普通接口报错
+    }
+
+    public enum YueType {
+        NO_SIZE_NOT_SAME("✔没越权(1)", "✔没越权(和原始数据包大小不一样)"),
+        NO_AUTHENTICATION("✔没越权(2)", "✔没越权(返回了鉴权失败)"),
+        NO_IN_WHITE_LIST("✔没越权(3)", "✔没越权(在白名单中)"),
+        YES_SAME_SAME_NOT_IN_WHITE_LIST("✘越权(5)", "✘越权(和原始数据包大小一样, 且不在白名单)"),
+        YES_API_ERROR("✘越权(6)", "✘越权(接口报错,分析为什么)"),
+        YES_IMPOSSIBLE("✘越权(7)", "✘越权(接口响应分类有问题)"),
+        YES_NOT_SUCCESS_IF_NO_LOGIN("✘越权(8)", "越权(没登录不应该成功)")
+        ;
+        private final String code;
+        private final String desc;
+
+        YueType(String code, String desc) {
+            this.code = code;
+            this.desc = desc;
+        }
+
+        public String getHint() {
+            String msg = this.desc.substring(this.desc.indexOf("(") + 1, this.desc.indexOf(")"));
+            return this.code.replaceAll("✔没越权", "").replaceAll("✘越权", "") + msg;
+        }
+
+        public String getCode() {
+            return this.code;
+        }
+
+        public String getDesc() {
+            return this.desc;
+        }
     }
 
     // 分类结果类

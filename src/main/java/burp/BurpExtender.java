@@ -2,18 +2,20 @@ package burp;
 
 import burp.utils.ResponseClassifier;
 import burp.utils.ResponseClassifier.ResponseType;
+import burp.utils.ResponseClassifier.YueType;
+import burp.utils.Utils;
 
 import javax.swing.*;
 import javax.swing.table.AbstractTableModel;
+import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.TableModel;
 import java.awt.*;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
-import java.awt.event.ItemEvent;
-import java.awt.event.ItemListener;
 import java.io.PrintWriter;
+import java.net.URL;
 import java.security.MessageDigest;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 
 public class BurpExtender
@@ -30,35 +32,34 @@ public class BurpExtender
     private IMessageEditor responseViewer_2;
     private IMessageEditor requestViewer_3; // 低权限数据包2的改动, 显示请求体
     private IMessageEditor responseViewer_3; // 低权限数据包2的改动, 显示响应体
-    private final List<LogEntry> log = new ArrayList<>();
     private IHttpRequestResponse currentlyDisplayedItem;
-    private IHttpRequestResponse currentlyDisplayedItem_1;
-    private IHttpRequestResponse currentlyDisplayedItem_2;
-    private IHttpRequestResponse currentlyDisplayedItem_3; // 低权限数据包2的改动, 其实没啥用
+    private final List<LogEntry> log = new ArrayList<>();
     private final List<Request_md5> log4_md5 = new ArrayList<>();
-    public PrintWriter stdout;
-    JTabbedPane tabs;
+    private JTabbedPane tabs;
+    public static PrintWriter stdout;
     int switchs = 0;
-    int conut = 0;
-    int original_data_len;
-    String temp_data;
+    int count = 0;
     int select_row = 0;
     Table logTable;
-    String white_URL = "";
+    String hostWhiteListStr = "";
     int white_switchs = 0;
-    String data_1 = "";
-    String data_2 = "";
-    String data_d2 = ""; // 低权限数据包2的改动, 配置区域
+    List<String> d1HeaderList = new ArrayList<>();
+    List<String> d2HeaderList = new ArrayList<>(); // 低权限数据包2的改动, 配置区域
+    List<String> unauthorizedHeaderList = new ArrayList<>();
+    String otherConfig = "";
     String universal_cookie = "";
     String xy_version = "1.4_魔改版";
     private ResponseClassifier classifier;
+    private JCheckBox conclusionCkb;
+    private static HashSet<String> unauthorizedUrlWhiteSet = new HashSet<>();
+    private static HashSet<String> lowUrlWhiteSet = new HashSet<>();
 
 
     public void registerExtenderCallbacks(final IBurpExtenderCallbacks callbacks) {
-        this.stdout = new PrintWriter(callbacks.getStdout(), true);
-        this.stdout.println("hello xia Yue!");
-        this.stdout.println("你好 欢迎使用 瞎越!");
-        this.stdout.println("version:" + this.xy_version);
+        stdout = new PrintWriter(callbacks.getStdout(), true);
+        stdout.println("hello xia Yue!");
+        stdout.println("你好 欢迎使用 瞎越!");
+        stdout.println("version:" + this.xy_version);
 
 
         this.callbacks = callbacks;
@@ -75,15 +76,29 @@ public class BurpExtender
 
 
             public void run() {
-                BurpExtender.this.splitPane = new JSplitPane(1);
-                JSplitPane splitPanes = new JSplitPane(0);
-                JSplitPane splitPanes_2 = new JSplitPane(0);
-
-
                 BurpExtender.this.logTable = new BurpExtender.Table(BurpExtender.this);
                 BurpExtender.this.logTable.getColumnModel().getColumn(0).setPreferredWidth(10);
                 BurpExtender.this.logTable.getColumnModel().getColumn(1).setPreferredWidth(30); // 低权限数据包2的改动, 减少一下请求类型的长度
                 BurpExtender.this.logTable.getColumnModel().getColumn(2).setPreferredWidth(300);
+                DefaultTableCellRenderer cellRenderer = new DefaultTableCellRenderer() {
+                    @Override
+                    public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
+                        Component c = super.getTableCellRendererComponent(table, value,
+                                isSelected, hasFocus, row, column);
+                        if (value instanceof String) {
+                            String strValue = (String) value;
+                            if (strValue.contains("✘")) {
+                                c.setForeground(Color.RED);
+                            } else {
+                                c.setForeground(Color.BLACK);
+                            }
+                        }
+                        return c;
+                    }
+                };
+                BurpExtender.this.logTable.getColumnModel().getColumn(4).setCellRenderer(cellRenderer);
+                BurpExtender.this.logTable.getColumnModel().getColumn(5).setCellRenderer(cellRenderer);
+                BurpExtender.this.logTable.getColumnModel().getColumn(6).setCellRenderer(cellRenderer);
                 JScrollPane scrollPane = new JScrollPane(BurpExtender.this.logTable);
 
 
@@ -93,137 +108,134 @@ public class BurpExtender
 
 
                 JPanel jps = new JPanel();
-                jps.setLayout(new GridLayout(10, 1));
-                JLabel jls = new JLabel("插件名：瞎越 author：算命縖子");
-                JLabel jls_1 = new JLabel("吐司:www.t00ls.com");
-                JLabel jls_2 = new JLabel("版本：xia Yue V" + BurpExtender.this.xy_version);
-                JLabel jls_3 = new JLabel("感谢名单：Moonlit");
-                final JCheckBox chkbox1 = new JCheckBox("启动插件");
+                jps.setLayout(new GridLayout(5 + YueType.values().length, 1));
+                List<JLabel> hintLabels = new ArrayList<>();
+                for (YueType value : YueType.values()) {
+                    hintLabels.add(new JLabel(value.getHint()));
+                }
+                final JCheckBox enableCkb = new JCheckBox("启动插件");
+                conclusionCkb = new JCheckBox("自动结论");
                 final JCheckBox chkbox2 = new JCheckBox("启动万能cookie");
-                JLabel jls_5 = new JLabel("如果需要多个域名加白请用,隔开");
-                final JTextField textField = new JTextField("填写白名单域名");
+                JLabel hostWhiteListLabel = new JLabel("如果需要多个域名加白请用,隔开");
+                final JTextField hostWhiteListTextField = new JTextField("填写白名单域名");
 
+                JButton clearListBtn = new JButton("清空列表");
+                final JButton enableHostWhiteListBtn = new JButton("启动白名单");
 
-                JButton btn1 = new JButton("清空列表");
-                final JButton btn3 = new JButton("启动白名单");
-
-
-                JPanel jps_2 = new JPanel();
-                JLabel jps_2_jls_1 = new JLabel("越权：填写低权限认证信息,将会替换或新增");
-                final JTextArea jta = new JTextArea("Cookie: JSESSIONID=test;UUID=1; userid=admin\nAuthorization: Bearer test", 5, 30);
-
-                JScrollPane jsp = new JScrollPane(jta);
-
-
-                JLabel jps_2_jls_2 = new JLabel("未授权：将移除下列头部认证信息,区分大小写");
-                final JTextArea jta_1 = new JTextArea("Cookie\nAuthorization\nToken", 5, 30);
-
-                JScrollPane jsp_1 = new JScrollPane(jta_1);
-
-
-                jps_2.add(jps_2_jls_1);
-                jps_2.add(jsp);
-                jps_2.add(jps_2_jls_2);
-                jps_2.add(jsp_1);
+                JLabel d1HeaderLabel = new JLabel("越权(对应低权限数据包)：填写低权限认证信息,将会替换或新增");
+                final JTextArea d1HeaderTextArea = new JTextArea("Cookie: JSESSIONID=test;UUID=1; userid=admin\nAuthorization: Bearer test", 5, 30);
+                JScrollPane d1HeaderScrollPane = new JScrollPane(d1HeaderTextArea);
 
                 // 低权限数据包2的改动, 配置区
-                JLabel d2_label = new JLabel("越权(对应低数据权限2)：填写低权限认证信息,将会替换或新增");
-                final JTextArea d2_jta = new JTextArea("Cookie: JSESSIONID=test;UUID=2; userid=normal\nAuthorization: Bearer test", 5, 30);
-                JScrollPane d2_jsp = new JScrollPane(d2_jta);
-                jps_2.add(d2_label);
-                jps_2.add(d2_jsp);
+                JLabel d2HeaderLabel = new JLabel("越权(对应低权限数据包2)：填写低权限认证信息,将会替换或新增");
+                final JTextArea d2HeaderTextArea = new JTextArea("Cookie: JSESSIONID=test;UUID=2; userid=normal\nAuthorization: Bearer test", 5, 30);
+                JScrollPane d2HeaderScrollPane = new JScrollPane(d2HeaderTextArea);
 
+                JLabel unauthorizedHeaderLabel = new JLabel("未授权：将移除下列头部认证信息,区分大小写");
+                final JTextArea unauthorizedHeaderTextArea = new JTextArea("Cookie\nAuthorization\nToken", 5, 30);
+                JScrollPane unauthorizedHeaderScrollPane = new JScrollPane(unauthorizedHeaderTextArea);
 
-                jps_2.setLayout(new GridLayout(7, 1, 0, 0)); // 低权限数据包2的改动, 5增加到7
+                JLabel otherConfigLabel = new JLabel("其他配置");
+                final JTextArea otherConfigTextArea = new JTextArea("{\n}", 5, 30);
+                JScrollPane otherConfigScrollPane = new JScrollPane(otherConfigTextArea);
 
+                JLabel lowUrlWhiteListLabel = new JLabel("低权限不算越权的url白名单");
+                final JTextArea lowUrlWhiteListTextArea = new JTextArea("", 5, 30);
+                JScrollPane lowUrlWhiteListScrollPane = new JScrollPane(lowUrlWhiteListTextArea);
 
-                chkbox1.addItemListener(new ItemListener() {
-                    public void itemStateChanged(ItemEvent e) {
-                        if (chkbox1.isSelected()) {
-                            BurpExtender.this.switchs = 1;
+                JLabel unauthorizedUrlWhiteListLabel = new JLabel("未授权不算越权的url白名单");
+                final JTextArea unauthorizedUrlWhiteListTextArea = new JTextArea("", 5, 30);
+                JScrollPane unauthorizedUrlWhiteListScrollPane = new JScrollPane(unauthorizedUrlWhiteListTextArea);
 
-                            BurpExtender.this.data_1 = jta.getText();
-                            BurpExtender.this.data_2 = jta_1.getText();
-                            BurpExtender.this.data_d2 = d2_jta.getText(); // 低权限数据包2的改动, 配置区
+                JPanel headerPanel = new JPanel();
+                headerPanel.add(d1HeaderLabel);
+                headerPanel.add(d1HeaderScrollPane);
+                headerPanel.add(d2HeaderLabel);
+                headerPanel.add(d2HeaderScrollPane);
+                headerPanel.add(unauthorizedHeaderLabel);
+                headerPanel.add(unauthorizedHeaderScrollPane);
+                headerPanel.add(otherConfigLabel);
+                headerPanel.add(otherConfigScrollPane);
+                headerPanel.add(lowUrlWhiteListLabel);
+                headerPanel.add(lowUrlWhiteListScrollPane);
+                headerPanel.add(unauthorizedUrlWhiteListLabel);
+                headerPanel.add(unauthorizedUrlWhiteListScrollPane);
+                headerPanel.setLayout(new GridLayout(12, 1, 0, 0)); // 低权限数据包2的改动, 5增加到7
 
-                            jta.setForeground(Color.BLACK);
-                            jta.setBackground(Color.LIGHT_GRAY);
-                            jta.setEditable(false);
+                enableCkb.addItemListener(e -> {
+                    if (enableCkb.isSelected()) {
+                        String d1HeaderStr = defaultIfBlank(d1HeaderTextArea.getText(), "");
+                        BurpExtender.this.d1HeaderList = Arrays.asList(d1HeaderStr.split(","));
+                        String d2HeaderStr = defaultIfBlank(d2HeaderTextArea.getText(), "");
+                        BurpExtender.this.d2HeaderList = Arrays.asList(d2HeaderStr.split(","));
+                        String unauthorizedHeaderStr = defaultIfBlank(unauthorizedHeaderTextArea.getText(), "");
+                        BurpExtender.this.unauthorizedHeaderList = Arrays.asList(unauthorizedHeaderStr.split(","));
+                        BurpExtender.this.otherConfig = otherConfigTextArea.getText();
+                        String unauthorizedUrlText = defaultIfBlank(unauthorizedUrlWhiteListTextArea.getText(), "");
+                        BurpExtender.unauthorizedUrlWhiteSet = new HashSet<>(Arrays.asList(unauthorizedUrlText.split("\n")));
+                        String lowUrlText = defaultIfBlank(lowUrlWhiteListTextArea.getText(), "");
+                        BurpExtender.lowUrlWhiteSet = new HashSet<>(Arrays.asList(lowUrlText.split("\n")));
 
-                            jta_1.setForeground(Color.BLACK);
-                            jta_1.setBackground(Color.LIGHT_GRAY);
-                            jta_1.setEditable(false);
-                            // 低权限数据包2的改动, 配置区
-                            d2_jta.setForeground(Color.BLACK);
-                            d2_jta.setBackground(Color.LIGHT_GRAY);
-                            d2_jta.setEditable(false);
-                        } else {
-                            BurpExtender.this.switchs = 0;
-
-                            jta.setForeground(Color.BLACK);
-                            jta.setBackground(Color.WHITE);
-                            jta.setEditable(true);
-
-                            jta_1.setForeground(Color.BLACK);
-                            jta_1.setBackground(Color.WHITE);
-                            jta_1.setEditable(true);
-                            // 低权限数据包2的改动, 配置区
-                            d2_jta.setForeground(Color.BLACK);
-                            d2_jta.setBackground(Color.WHITE);
-                            d2_jta.setEditable(true);
-                        }
+                        BurpExtender.this.switchs = 1;
+                        disableTextArea(d1HeaderTextArea);
+                        disableTextArea(d2HeaderTextArea);
+                        disableTextArea(unauthorizedHeaderTextArea);
+                        disableTextArea(otherConfigTextArea);
+                        disableTextArea(lowUrlWhiteListTextArea);
+                        disableTextArea(unauthorizedUrlWhiteListTextArea);
+                    } else {
+                        BurpExtender.this.switchs = 0;
+                        enableTextArea(d1HeaderTextArea);
+                        enableTextArea(d2HeaderTextArea);
+                        enableTextArea(unauthorizedHeaderTextArea);
+                        enableTextArea(otherConfigTextArea);
+                        enableTextArea(lowUrlWhiteListTextArea);
+                        enableTextArea(unauthorizedUrlWhiteListTextArea);
                     }
                 });
 
-
-                chkbox2.addItemListener(new ItemListener() {
-                    public void itemStateChanged(ItemEvent e) {
-                        if (chkbox2.isSelected()) {
-                            BurpExtender.this.universal_cookie = "";
-                        } else {
-                            BurpExtender.this.universal_cookie = "";
-                        }
+                chkbox2.addItemListener(e -> {
+                    if (chkbox2.isSelected()) {
+                        BurpExtender.this.universal_cookie = "";
+                    } else {
+                        BurpExtender.this.universal_cookie = "";
                     }
                 });
 
-
-                btn1.addActionListener(new ActionListener() {
-                    public void actionPerformed(ActionEvent e) {
-                        BurpExtender.this.log.clear();
-                        BurpExtender.this.conut = 0;
-                        BurpExtender.this.log4_md5.clear();
-                        BurpExtender.this.fireTableRowsInserted(BurpExtender.this.log.size(), BurpExtender.this.log.size());
-                    }
+                clearListBtn.addActionListener(e -> {
+                    BurpExtender.this.log.clear();
+                    BurpExtender.this.count = 0;
+                    BurpExtender.this.log4_md5.clear();
+                    BurpExtender.this.fireTableRowsInserted(BurpExtender.this.log.size(), BurpExtender.this.log.size());
                 });
-                btn3.addActionListener(new ActionListener() {
-                    public void actionPerformed(ActionEvent e) {
-                        if (btn3.getText().equals("启动白名单")) {
-                            btn3.setText("关闭白名单");
-                            BurpExtender.this.white_URL = textField.getText();
-                            BurpExtender.this.white_switchs = 1;
-                            textField.setEditable(false);
-                            textField.setForeground(Color.GRAY);
-                        } else {
-                            btn3.setText("启动白名单");
-                            BurpExtender.this.white_switchs = 0;
-                            textField.setEditable(true);
-                            textField.setForeground(Color.BLACK);
-                        }
+                enableHostWhiteListBtn.addActionListener(e -> {
+                    if (enableHostWhiteListBtn.getText().equals("启动白名单")) {
+                        enableHostWhiteListBtn.setText("关闭白名单");
+                        BurpExtender.this.hostWhiteListStr = hostWhiteListTextField.getText();
+                        BurpExtender.this.white_switchs = 1;
+                        hostWhiteListTextField.setEditable(false);
+                        hostWhiteListTextField.setForeground(Color.GRAY);
+                    } else {
+                        enableHostWhiteListBtn.setText("启动白名单");
+                        BurpExtender.this.white_switchs = 0;
+                        hostWhiteListTextField.setEditable(true);
+                        hostWhiteListTextField.setForeground(Color.BLACK);
                     }
                 });
 
+                for (JLabel hintLabel : hintLabels) {
+                    jps.add(hintLabel);
+                }
+                JPanel checkboxPanel = new JPanel();
+                checkboxPanel.setLayout(new BoxLayout(checkboxPanel, BoxLayout.X_AXIS)); // 横向排列
+                checkboxPanel.add(enableCkb);
+                checkboxPanel.add(conclusionCkb);
+                jps.add(checkboxPanel);
 
-                jps.add(jls);
-                jps.add(jls_1);
-                jps.add(jls_2);
-                jps.add(jls_3);
-                jps.add(chkbox1);
-
-                jps.add(btn1);
-                jps.add(jls_5);
-                jps.add(textField);
-                jps.add(btn3);
-
+                jps.add(clearListBtn);
+                jps.add(hostWhiteListLabel);
+                jps.add(hostWhiteListTextField);
+                jps.add(enableHostWhiteListBtn);
 
                 BurpExtender.this.tabs = new JTabbedPane();
                 BurpExtender.this.requestViewer = callbacks.createMessageEditor(BurpExtender.this, false);
@@ -236,46 +248,43 @@ public class BurpExtender
                 BurpExtender.this.requestViewer_3 = callbacks.createMessageEditor(BurpExtender.this, false);
                 BurpExtender.this.responseViewer_3 = callbacks.createMessageEditor(BurpExtender.this, false);
 
-                JSplitPane y_jp = new JSplitPane(1);
-                y_jp.setDividerLocation(500);
-                y_jp.setLeftComponent(BurpExtender.this.requestViewer.getComponent());
-                y_jp.setRightComponent(BurpExtender.this.responseViewer.getComponent());
+                JSplitPane originSplitPanel = new JSplitPane(1);
+                originSplitPanel.setDividerLocation(500);
+                originSplitPanel.setLeftComponent(BurpExtender.this.requestViewer.getComponent());
+                originSplitPanel.setRightComponent(BurpExtender.this.responseViewer.getComponent());
 
-                JSplitPane d_jp = new JSplitPane(1);
-                d_jp.setDividerLocation(500);
-                d_jp.setLeftComponent(BurpExtender.this.requestViewer_1.getComponent());
-                d_jp.setRightComponent(BurpExtender.this.responseViewer_1.getComponent());
+                JSplitPane d1SplitPanel = new JSplitPane(1);
+                d1SplitPanel.setDividerLocation(500);
+                d1SplitPanel.setLeftComponent(BurpExtender.this.requestViewer_1.getComponent());
+                d1SplitPanel.setRightComponent(BurpExtender.this.responseViewer_1.getComponent());
 
-                JSplitPane w_jp = new JSplitPane(1);
-                w_jp.setDividerLocation(500);
-                w_jp.setLeftComponent(BurpExtender.this.requestViewer_2.getComponent());
-                w_jp.setRightComponent(BurpExtender.this.responseViewer_2.getComponent());
+                JSplitPane unauthorizedSplitPanel = new JSplitPane(1);
+                unauthorizedSplitPanel.setDividerLocation(500);
+                unauthorizedSplitPanel.setLeftComponent(BurpExtender.this.requestViewer_2.getComponent());
+                unauthorizedSplitPanel.setRightComponent(BurpExtender.this.responseViewer_2.getComponent());
 
-                // 低权限数据包2的改动, 请求,响应区域
-                JSplitPane d2_jp = new JSplitPane(1);
-                d2_jp.setDividerLocation(500);
-                d2_jp.setLeftComponent(BurpExtender.this.requestViewer_3.getComponent());
-                d2_jp.setRightComponent(BurpExtender.this.responseViewer_3.getComponent());
+                JSplitPane d2SplitPanel = new JSplitPane(1);
+                d2SplitPanel.setDividerLocation(500);
+                d2SplitPanel.setLeftComponent(BurpExtender.this.requestViewer_3.getComponent());
+                d2SplitPanel.setRightComponent(BurpExtender.this.responseViewer_3.getComponent());
 
-                BurpExtender.this.tabs.addTab("原始数据包", y_jp);
-                BurpExtender.this.tabs.addTab("低权限数据包", d_jp);
-                BurpExtender.this.tabs.addTab("未授权数据包", w_jp);
-                // 低权限数据包2的改动, 请求,响应区域
-                BurpExtender.this.tabs.addTab("低权限数据包2", d2_jp);
+                BurpExtender.this.tabs.addTab("原始数据包", originSplitPanel);
+                BurpExtender.this.tabs.addTab("低权限数据包", d1SplitPanel);
+                BurpExtender.this.tabs.addTab("未授权数据包", unauthorizedSplitPanel);
+                BurpExtender.this.tabs.addTab("低权限数据包2", d2SplitPanel);
 
+                JSplitPane leftSplitPanes = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
+                leftSplitPanes.setTopComponent(jp);
+                leftSplitPanes.setBottomComponent(BurpExtender.this.tabs);
 
-                splitPanes_2.setLeftComponent(jps);
-                splitPanes_2.setRightComponent(jps_2);
+                JSplitPane rightSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
+                rightSplitPane.setTopComponent(jps);
+                rightSplitPane.setBottomComponent(headerPanel);
 
-
-                splitPanes.setLeftComponent(jp);
-                splitPanes.setRightComponent(BurpExtender.this.tabs);
-
-
-                BurpExtender.this.splitPane.setLeftComponent(splitPanes);
-                BurpExtender.this.splitPane.setRightComponent(splitPanes_2);
+                BurpExtender.this.splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
+                BurpExtender.this.splitPane.setLeftComponent(leftSplitPanes);
+                BurpExtender.this.splitPane.setRightComponent(rightSplitPane);
                 BurpExtender.this.splitPane.setDividerLocation(1000);
-
 
                 callbacks.customizeUiComponent(BurpExtender.this.splitPane);
                 callbacks.customizeUiComponent(BurpExtender.this.logTable);
@@ -283,17 +292,33 @@ public class BurpExtender
                 callbacks.customizeUiComponent(jps);
                 callbacks.customizeUiComponent(jp);
                 callbacks.customizeUiComponent(BurpExtender.this.tabs);
-
-
                 callbacks.addSuiteTab(BurpExtender.this);
-
-
                 callbacks.registerHttpListener(BurpExtender.this);
                 callbacks.registerScannerCheck(BurpExtender.this);
+            }
+
+            private String defaultIfBlank(String text, String defaultValue) {
+                if (text != null && !text.isEmpty()) {
+                    text = text.trim();
+                } else {
+                    text = defaultValue;
+                }
+                return text;
             }
         });
     }
 
+    private void disableTextArea(JTextArea textArea) {
+        textArea.setForeground(Color.BLACK);
+        textArea.setBackground(Color.LIGHT_GRAY);
+        textArea.setEditable(false);
+    }
+
+    private void enableTextArea(JTextArea textArea) {
+        textArea.setForeground(Color.BLACK);
+        textArea.setBackground(Color.WHITE);
+        textArea.setEditable(true);
+    }
 
     public String getTabCaption() {
         return "xia Yue魔改版";
@@ -304,23 +329,16 @@ public class BurpExtender
         return this.splitPane;
     }
 
-
     public void processHttpMessage(final int toolFlag, boolean messageIsRequest, final IHttpRequestResponse messageInfo) {
         if (this.switchs == 1 &&
                 toolFlag == 4) {
             if (!messageIsRequest) {
-
                 synchronized (this.log) {
-
-
-                    Thread thread = new Thread(new Runnable() {
-                        public void run() {
-                            try {
-                                BurpExtender.this.checkVul(messageInfo, toolFlag);
-                            } catch (Exception ex) {
-                                ex.printStackTrace();
-                                BurpExtender.this.stdout.println(ex);
-                            }
+                    Thread thread = new Thread(() -> {
+                        try {
+                            BurpExtender.this.checkVul(messageInfo, toolFlag);
+                        } catch (Exception ex) {
+                            BurpExtender.stdout.println("发生异常:" + Utils.getStackTrace(ex));
                         }
                     });
                     thread.start();
@@ -335,39 +353,34 @@ public class BurpExtender
     }
 
     private void checkVul(IHttpRequestResponse baseRequestResponse, int toolFlag) {
-        this.temp_data = String.valueOf(this.helpers.analyzeRequest(baseRequestResponse).getUrl());
-        this.original_data_len = (baseRequestResponse.getResponse()).length;
-        int original_len = this.original_data_len - this.helpers.analyzeResponse(baseRequestResponse.getResponse()).getBodyOffset();
-        String[] temp_data_strarray = this.temp_data.split("\\?");
-        String temp_data = temp_data_strarray[0];
+        String url = String.valueOf(this.helpers.analyzeRequest(baseRequestResponse).getUrl());
+        int original_data_len = (baseRequestResponse.getResponse()).length;
+        int original_len = original_data_len - this.helpers.analyzeResponse(baseRequestResponse.getResponse()).getBodyOffset();
+        String requestUrl = url.split("\\?")[0];
 
-
-        String[] white_URL_list = this.white_URL.split(",");
-        int white_swith = 0;
+        String[] whiteUrlList = this.hostWhiteListStr.split(",");
+        int white_swith;
         if (this.white_switchs == 1) {
             white_swith = 0;
-            for (int k = 0; k < white_URL_list.length; k++) {
-                if (temp_data.contains(white_URL_list[k])) {
-                    this.stdout.println("白名单URL！" + temp_data);
+            for (String whiteUrl : whiteUrlList) {
+                if (requestUrl.contains(whiteUrl)) {
+                    //stdout.println("白名单域名的URL！" + requestUrl);
                     white_swith = 1;
                 }
             }
             if (white_swith == 0) {
-                this.stdout.println("不是白名单URL！" + temp_data);
-
+                //stdout.println("不是白名单域名的URL！" + requestUrl);
                 return;
             }
         }
 
         if (toolFlag == 4 || toolFlag == 64) {
             String[] static_file = {"jpg", "png", "gif", "css", "js", "pdf", "mp3", "mp4", "avi", "map", "svg", "ico", "svg", "woff", "woff2", "ttf"};
-            String[] static_file_1 = temp_data.split("\\.");
+            String[] static_file_1 = requestUrl.split("\\.");
             String static_file_2 = static_file_1[static_file_1.length - 1];
             for (String str : static_file) {
                 if (static_file_2.equals(str)) {
-                    this.stdout.println("当前url为静态文件：" + temp_data + "\n");
-
-
+                    //stdout.println("当前url为静态文件：" + requestUrl + "\n");
                     return;
                 }
             }
@@ -375,142 +388,129 @@ public class BurpExtender
 
         List<IParameter> paraLists = this.helpers.analyzeRequest(baseRequestResponse).getParameters();
         for (IParameter para : paraLists) {
-            temp_data = temp_data + "+" + para.getName();
+            requestUrl = requestUrl + "+" + para.getName();
         }
 
 
-        temp_data = temp_data + "+" + this.helpers.analyzeRequest(baseRequestResponse).getMethod();
-        this.stdout.println("\nMD5(\"" + temp_data + "\")");
-        temp_data = LogEntry.MD5(temp_data);
-        this.stdout.println(temp_data);
+        requestUrl = requestUrl + "+" + this.helpers.analyzeRequest(baseRequestResponse).getMethod();
+        requestUrl = LogEntry.MD5(requestUrl);
+//        stdout.println("\nMD5(\"" + requestUrl + "\") = " + requestUrl);
 
         for (Request_md5 request_md5 : this.log4_md5) {
-            if (request_md5.md5_data.equals(temp_data)) {
+            if (request_md5.md5_data.equals(requestUrl)) {
                 return;
             }
         }
-        this.log4_md5.add(new Request_md5(temp_data));
+        this.log4_md5.add(new Request_md5(requestUrl));
 
 
-        IRequestInfo analyIRequestInfo = this.helpers.analyzeRequest(baseRequestResponse);
+        IRequestInfo requestInfo = this.helpers.analyzeRequest(baseRequestResponse);
         IHttpService iHttpService = baseRequestResponse.getHttpService();
         String request = this.helpers.bytesToString(baseRequestResponse.getRequest());
-        int bodyOffset = analyIRequestInfo.getBodyOffset();
+        int bodyOffset = requestInfo.getBodyOffset();
         byte[] body = request.substring(bodyOffset).getBytes();
 
 
-        List<String> headers_y = analyIRequestInfo.getHeaders();
-
-        String[] data_1_list = this.data_1.split("\n");
-        int i;
-        for (i = 0; i < headers_y.size(); i++) {
-            String head_key = ((String) headers_y.get(i)).split(":")[0];
-            for (int y = 0; y < data_1_list.length; y++) {
-                if (head_key.equals(data_1_list[y].split(":")[0])) {
-                    headers_y.remove(i);
+        List<String> d1Headers = requestInfo.getHeaders();
+        for (int i = 0; i < d1Headers.size(); i++) {
+            String headKey = d1Headers.get(i).split(":")[0];
+            for (String d1ConfigHeader : d1HeaderList) {
+                if (headKey.equals(d1ConfigHeader.split(":")[0])) {
+                    d1Headers.remove(i);
                     i--;
                 }
             }
         }
-
-
-        for (i = 0; i < data_1_list.length; i++) {
-            headers_y.add(headers_y.size() / 2, data_1_list[i]);
+        for (String d1ConfigHeader : d1HeaderList) {
+            d1Headers.add(d1Headers.size() / 2, d1ConfigHeader);
         }
 
 
-        byte[] newRequest_y = this.helpers.buildHttpMessage(headers_y, body);
-        IHttpRequestResponse requestResponse_y = this.callbacks.makeHttpRequest(iHttpService, newRequest_y);
-        int low_len = (requestResponse_y.getResponse()).length - this.helpers.analyzeResponse(requestResponse_y.getResponse()).getBodyOffset();
-        String low_len_data = "";
+        byte[] d1Request = this.helpers.buildHttpMessage(d1Headers, body);
+        IHttpRequestResponse d1Response = this.callbacks.makeHttpRequest(iHttpService, d1Request);
+        int d1Len = (d1Response.getResponse()).length - this.helpers.analyzeResponse(d1Response.getResponse()).getBodyOffset();
+        String d1LenDisplay;
         if (original_len == 0) {
-            low_len_data = Integer.toString(low_len);
-        } else if (original_len == low_len) {
-            low_len_data = Integer.toString(low_len) + "  ✔";
+            d1LenDisplay = Integer.toString(d1Len);
+        } else if (original_len == d1Len) {
+            d1LenDisplay = d1Len + "  ✔";
         } else {
-            low_len_data = Integer.toString(low_len) + "  ==> " + Integer.toString(original_len - low_len);
+            d1LenDisplay = d1Len + "  ==> " + (original_len - d1Len);
         }
 
         // 低权限数据包2的改动, 修改头,发送请求
-        List<String> headers_d2 = analyIRequestInfo.getHeaders();
-        String[] data_d2_list = this.data_d2.split("\n");
-        int k;
-        for (k = 0; k < headers_d2.size(); k++) {
-            String head_key = ((String) headers_d2.get(k)).split(":")[0];
-            for (int y = 0; y < data_d2_list.length; y++) {
-                if (head_key.equals(data_d2_list[y].split(":")[0])) {
-                    headers_d2.remove(k);
+        List<String> d2Headers = requestInfo.getHeaders();
+        for (int k = 0; k < d2Headers.size(); k++) {
+            String headKey = d2Headers.get(k).split(":")[0];
+            for (String d2ConfigHeader : d2HeaderList) {
+                if (headKey.equals(d2ConfigHeader.split(":")[0])) {
+                    d2Headers.remove(k);
                     k--;
                 }
             }
         }
-
-
-        for (k = 0; k < data_d2_list.length; k++) {
-            headers_d2.add(headers_d2.size() / 2, data_d2_list[k]);
+        for (String d2ConfigHeader : d2HeaderList) {
+            d2Headers.add(d2Headers.size() / 2, d2ConfigHeader);
         }
 
-        byte[] newRequest_d2 = this.helpers.buildHttpMessage(headers_d2, body);
-        IHttpRequestResponse requestResponse_d2 = this.callbacks.makeHttpRequest(iHttpService, newRequest_d2);
-        int low2_len = (requestResponse_d2.getResponse()).length - this.helpers.analyzeResponse(requestResponse_d2.getResponse()).getBodyOffset();
-        String low2_len_data = "";
+        byte[] d2Request = this.helpers.buildHttpMessage(d2Headers, body);
+        IHttpRequestResponse d2Response = this.callbacks.makeHttpRequest(iHttpService, d2Request);
+        int d2Len = (d2Response.getResponse()).length - this.helpers.analyzeResponse(d2Response.getResponse()).getBodyOffset();
+        String d2LenDisplay;
         if (original_len == 0) {
-            low2_len_data = Integer.toString(low2_len);
-        } else if (original_len == low2_len) {
-            low2_len_data = Integer.toString(low2_len) + "  ✔";
+            d2LenDisplay = Integer.toString(d2Len);
+        } else if (original_len == d2Len) {
+            d2LenDisplay = d2Len + "  ✔";
         } else {
-            low2_len_data = Integer.toString(low2_len) + "  ==> " + Integer.toString(original_len - low2_len);
+            d2LenDisplay = d2Len + "  ==> " + (original_len - d2Len);
         }
 
 
-        List<String> headers_w = analyIRequestInfo.getHeaders();
-
-        String[] data_2_list = this.data_2.split("\n");
-        for (int j = 0; j < headers_w.size(); j++) {
-            String head_key = ((String) headers_w.get(j)).split(":")[0];
-            for (int y = 0; y < data_2_list.length; y++) {
-                if (head_key.equals(data_2_list[y])) {
-                    headers_w.remove(j);
+        List<String> unauthorizedHeaders = requestInfo.getHeaders();
+        for (int j = 0; j < unauthorizedHeaders.size(); j++) {
+            String head_key = unauthorizedHeaders.get(j).split(":")[0];
+            for (String unauthorizedConfigHeader : this.unauthorizedHeaderList) {
+                if (head_key.equals(unauthorizedConfigHeader)) {
+                    unauthorizedHeaders.remove(j);
                     j--;
                 }
             }
         }
-
-        if (this.universal_cookie.length() != 0) {
+        if (!this.universal_cookie.isEmpty()) {
             String[] universal_cookies = this.universal_cookie.split("\n");
-            headers_w.add(headers_w.size() / 2, universal_cookies[0]);
-            headers_w.add(headers_w.size() / 2, universal_cookies[1]);
+            unauthorizedHeaders.add(unauthorizedHeaders.size() / 2, universal_cookies[0]);
+            unauthorizedHeaders.add(unauthorizedHeaders.size() / 2, universal_cookies[1]);
         }
 
-        byte[] newRequest_w = this.helpers.buildHttpMessage(headers_w, body);
-        IHttpRequestResponse requestResponse_w = this.callbacks.makeHttpRequest(iHttpService, newRequest_w);
-        int Unauthorized_len = (requestResponse_w.getResponse()).length - this.helpers.analyzeResponse(requestResponse_w.getResponse()).getBodyOffset();
-        String original_len_data = "";
+        byte[] unauthorizedRequest = this.helpers.buildHttpMessage(unauthorizedHeaders, body);
+        IHttpRequestResponse unauthorizedResponse = this.callbacks.makeHttpRequest(iHttpService, unauthorizedRequest);
+        int unauthorizedLen = (unauthorizedResponse.getResponse()).length - this.helpers.analyzeResponse(unauthorizedResponse.getResponse()).getBodyOffset();
+        String unauthorizedLenDisplay;
         if (original_len == 0) {
-            original_len_data = Integer.toString(Unauthorized_len);
-        } else if (original_len == Unauthorized_len) {
-            original_len_data = Integer.toString(Unauthorized_len) + "  ✔";
+            unauthorizedLenDisplay = Integer.toString(unauthorizedLen);
+        } else if (original_len == unauthorizedLen) {
+            unauthorizedLenDisplay = unauthorizedLen + "  ✔";
         } else {
-            original_len_data = Integer.toString(Unauthorized_len) + "  ==> " + Integer.toString(original_len - Unauthorized_len);
+            unauthorizedLenDisplay = unauthorizedLen + "  ==> " + (original_len - unauthorizedLen);
         }
 
-
-        int id = ++this.conut;
+        int id = ++this.count;
         // 低权限数据包2的改动, 调整了LogEntry构造方法
 
-        IRequestInfo iRequestInfo = this.helpers.analyzeRequest(baseRequestResponse);
-        IHttpRequestResponsePersisted persisted_origin = this.callbacks.saveBuffersToTempFiles(baseRequestResponse);
-        IHttpRequestResponsePersisted persisted_d1 = this.callbacks.saveBuffersToTempFiles(requestResponse_y);
-        IHttpRequestResponsePersisted persisted_unauthorized = this.callbacks.saveBuffersToTempFiles(requestResponse_w);
-        IHttpRequestResponsePersisted persisted_d2 = this.callbacks.saveBuffersToTempFiles(requestResponse_d2);
-        ResponseType responseType_origin = classifier.classifyResponse(persisted_origin);
-        ResponseType responseType_d1 = classifier.classifyResponse(persisted_d1);
-        ResponseType responseType_unauthorized = classifier.classifyResponse(persisted_unauthorized);
-        ResponseType responseType_d2 = classifier.classifyResponse(persisted_d2);
+        IHttpRequestResponsePersisted originPersisted = this.callbacks.saveBuffersToTempFiles(baseRequestResponse);
+        IHttpRequestResponsePersisted d1Persisted = this.callbacks.saveBuffersToTempFiles(d1Response);
+        IHttpRequestResponsePersisted d2Persisted = this.callbacks.saveBuffersToTempFiles(d2Response);
+        IHttpRequestResponsePersisted unauthorizedPersisted = this.callbacks.saveBuffersToTempFiles(unauthorizedResponse);
+        ResponseType originResponseType = classifier.classifyResponse(originPersisted);
+        ResponseType d1ResponseType = classifier.classifyResponse(d1Persisted);
+        ResponseType d2ResponseType = classifier.classifyResponse(d2Persisted);
+        ResponseType unauthorizedResponseType = classifier.classifyResponse(unauthorizedPersisted);
 
-        this.log.add(new LogEntry(id, iRequestInfo.getMethod(), persisted_origin, persisted_d1, persisted_unauthorized, persisted_d2,
-                String.valueOf(iRequestInfo.getUrl()), original_len, low_len_data, original_len_data, low2_len_data,
-                responseType_origin, responseType_d1, responseType_unauthorized, responseType_d2
+        this.log.add(new LogEntry(id, requestInfo.getMethod(), requestInfo.getUrl(),
+                originPersisted, d1Persisted, d2Persisted, unauthorizedPersisted,
+                original_len, d1Len, d2Len, unauthorizedLen,
+                d1LenDisplay, d2LenDisplay, unauthorizedLenDisplay,
+                originResponseType, d1ResponseType, d2ResponseType, unauthorizedResponseType
         ));
 
         fireTableDataChanged();
@@ -573,21 +573,32 @@ public class BurpExtender
         LogEntry logEntry = this.log.get(rowIndex);
 
         switch (columnIndex) {
-
             case 0:
-                return Integer.valueOf(logEntry.id);
+                return logEntry.id;
             case 1:
                 return logEntry.Method;
             case 2:
                 return logEntry.url;
             case 3:
-                return Integer.valueOf(logEntry.original_len);
+                return logEntry.originalLen;
             case 4:
-                return logEntry.low_len + "(" + logEntry.d1YueResult + ")";
+                if (conclusionCkb.isSelected()) {
+                    return logEntry.d1YueResult;
+                } else {
+                    return logEntry.d1LenDisplay;
+                }
             case 5:
-                return logEntry.Unauthorized_len + "(" + logEntry.unauthorizedYueResult + ")";
+                if (conclusionCkb.isSelected()) {
+                    return logEntry.unauthorizedYueResult;
+                } else {
+                    return logEntry.unauthorizedLenDisplay;
+                }
             case 6: // 低权限数据包2的改动, 表格增加了一列, 6改成7
-                return logEntry.low2_len_data + "(" + logEntry.d2YueResult + ")";
+                if (conclusionCkb.isSelected()) {
+                    return logEntry.d2YueResult;
+                } else {
+                    return logEntry.d2LenDisplay;
+                }
         }
         return "";
     }
@@ -628,19 +639,19 @@ public class BurpExtender
                 BurpExtender.this.tabs.setSelectedIndex(0);
             }
 
-            BurpExtender.this.requestViewer.setMessage(logEntry.requestResponse.getRequest(), true);
-            BurpExtender.this.responseViewer.setMessage(logEntry.requestResponse.getResponse(), false);
-            BurpExtender.this.currentlyDisplayedItem = logEntry.requestResponse;
-            BurpExtender.this.requestViewer_1.setMessage(logEntry.requestResponse_1.getRequest(), true);
-            BurpExtender.this.responseViewer_1.setMessage(logEntry.requestResponse_1.getResponse(), false);
-            BurpExtender.this.currentlyDisplayedItem_1 = logEntry.requestResponse_1;
-            BurpExtender.this.requestViewer_2.setMessage(logEntry.requestResponse_2.getRequest(), true);
-            BurpExtender.this.responseViewer_2.setMessage(logEntry.requestResponse_2.getResponse(), false);
-            BurpExtender.this.currentlyDisplayedItem_2 = logEntry.requestResponse_2;
+            BurpExtender.this.requestViewer.setMessage(logEntry.originPersisted.getRequest(), true);
+            BurpExtender.this.responseViewer.setMessage(logEntry.originPersisted.getResponse(), false);
+            BurpExtender.this.currentlyDisplayedItem = logEntry.originPersisted;
+            BurpExtender.this.requestViewer_1.setMessage(logEntry.d1Persisted.getRequest(), true);
+            BurpExtender.this.responseViewer_1.setMessage(logEntry.d1Persisted.getResponse(), false);
+//            BurpExtender.this.currentlyDisplayedItem_1 = logEntry.d1Persisted;
+            BurpExtender.this.requestViewer_2.setMessage(logEntry.unauthorizedPersisted.getRequest(), true);
+            BurpExtender.this.responseViewer_2.setMessage(logEntry.unauthorizedPersisted.getResponse(), false);
+//            BurpExtender.this.currentlyDisplayedItem_2 = logEntry.unauthorizedPersisted;
             // 低权限数据包2的改动,
-            BurpExtender.this.requestViewer_3.setMessage(logEntry.requestResponse_3.getRequest(), true);
-            BurpExtender.this.responseViewer_3.setMessage(logEntry.requestResponse_3.getResponse(), false);
-            BurpExtender.this.currentlyDisplayedItem_3 = logEntry.requestResponse_3;
+            BurpExtender.this.requestViewer_3.setMessage(logEntry.d2Persisted.getRequest(), true);
+            BurpExtender.this.responseViewer_3.setMessage(logEntry.d2Persisted.getResponse(), false);
+//            BurpExtender.this.currentlyDisplayedItem_3 = logEntry.d2Persisted;
 
             super.changeSelection(row, col, toggle, extend);
         }
@@ -662,128 +673,161 @@ public class BurpExtender
 
         final String Method;
 
-        final IHttpRequestResponsePersisted requestResponse;
-        final IHttpRequestResponsePersisted requestResponse_1;
-        final IHttpRequestResponsePersisted requestResponse_2;
-        final IHttpRequestResponsePersisted requestResponse_3; // 低权限数据包2的改动,
+        final IHttpRequestResponsePersisted originPersisted;
+        final IHttpRequestResponsePersisted d1Persisted;
+        final IHttpRequestResponsePersisted unauthorizedPersisted;
+        final IHttpRequestResponsePersisted d2Persisted; // 低权限数据包2的改动,
         final String url;
-        final int original_len;
-        final String low_len;
-        final String Unauthorized_len;
-        final String low2_len_data; // 低权限数据包2的改动,
-        final ResponseType responseType_origin;
-        final ResponseType responseType_d1;
-        final ResponseType responseType_unauthorized;
-        final ResponseType responseType_d2;
+        final String path;
+        final int originalLen;
+        final int d1Len;
+        final int unauthorizedLen;
+        final int d2Len;
+        final String d1LenDisplay;
+        final String unauthorizedLenDisplay;
+        final String d2LenDisplay; // 低权限数据包2的改动,
+        final ResponseType originResponseType;
+        final ResponseType d1ResponseType;
+        final ResponseType unauthorizedResponseType;
+        final ResponseType d2ResponseType;
         String d1YueResult;
         String unauthorizedYueResult;
         String d2YueResult;
 
         // 低权限数据包2的改动, 调整了构造方法入参
-        LogEntry(int id, String Method,
-                 IHttpRequestResponsePersisted requestResponse,
-                 IHttpRequestResponsePersisted requestResponse_1,
-                 IHttpRequestResponsePersisted requestResponse_2,
-                 IHttpRequestResponsePersisted requestResponse_3,
-                 String url, int original_len, String low_len, String Unauthorized_len, String low2_len_data,
-                 ResponseType responseType_origin,
-                 ResponseType responseType_d1,
-                 ResponseType responseType_unauthorized,
-                 ResponseType responseType_d2) {
+        LogEntry(int id, String Method, URL url,
+                 IHttpRequestResponsePersisted originPersisted,
+                 IHttpRequestResponsePersisted d1Persisted,
+                 IHttpRequestResponsePersisted d2Persisted,
+                 IHttpRequestResponsePersisted unauthorizedPersisted,
+                 int originalLen, int d1Len, int d2Len, int unauthorizedLen,
+                 String d1LenDisplay, String d2LenDisplay, String unauthorizedLenDisplay,
+                 ResponseType originResponseType,
+                 ResponseType d1ResponseType,
+                 ResponseType d2ResponseType,
+                 ResponseType unauthorizedResponseType) {
             this.id = id;
             this.Method = Method;
-            this.requestResponse = requestResponse;
-            this.requestResponse_1 = requestResponse_1;
-            this.requestResponse_2 = requestResponse_2;
-            this.requestResponse_3 = requestResponse_3; // 低权限数据包2的改动,
-            this.url = url;
-            this.original_len = original_len;
-            this.low_len = low_len;
-            this.Unauthorized_len = Unauthorized_len;
-            this.low2_len_data = low2_len_data; // 低权限数据包2的改动,
-            this.responseType_origin = responseType_origin;
-            this.responseType_d1 = responseType_d1;
-            this.responseType_unauthorized = responseType_unauthorized;
-            this.responseType_d2 = responseType_d2;
+            this.url = String.valueOf(url);
+            this.path = url.getPath();
+            this.originPersisted = originPersisted;
+            this.d1Persisted = d1Persisted;
+            this.d2Persisted = d2Persisted; // 低权限数据包2的改动,
+            this.unauthorizedPersisted = unauthorizedPersisted;
+            this.originalLen = originalLen;
+            this.d1Len = d1Len;
+            this.d2Len = d2Len;
+            this.unauthorizedLen = unauthorizedLen;
+            this.d1LenDisplay = d1LenDisplay;
+            this.d2LenDisplay = d2LenDisplay; // 低权限数据包2的改动,
+            this.unauthorizedLenDisplay = unauthorizedLenDisplay;
+            this.originResponseType = originResponseType;
+            this.d1ResponseType = d1ResponseType;
+            this.d2ResponseType = d2ResponseType;
+            this.unauthorizedResponseType = unauthorizedResponseType;
 
             this.calculateYueResult();
         }
 
         public void calculateYueResult() {
-            if (responseType_origin != ResponseType.SUCCESS) {
+            if (originResponseType != ResponseType.SUCCESS) {
                 this.d1YueResult = "先确保原始数据包成功";
                 this.unauthorizedYueResult = "先确保原始数据包成功";
                 this.d2YueResult = "先确保原始数据包成功";
                 return;
             }
-            this.d1YueResult = calD1YueResult();
-            this.unauthorizedYueResult = calUnauthorizedYueResult();
-            this.d2YueResult = calD2YueResult();
+            this.d1YueResult = calD1YueResult().getCode();
+            this.unauthorizedYueResult = calUnauthorizedYueResult().getCode();
+            this.d2YueResult = calD2YueResult().getCode();
         }
 
-        private String calD1YueResult() {
-            String result = "";
-            if (this.responseType_d1 == ResponseType.SUCCESS) {
-                if (Integer.parseInt(this.low_len) == this.original_len) {
-                    if (isInWhiteList(this.url)) {
-                        result = "没越权(在白名单中)";
+        private YueType calD1YueResult() {
+            YueType result;
+            if (this.d1ResponseType == ResponseType.SUCCESS) {
+                if (this.d1Len == this.originalLen) {
+                    if (isInLowWhiteList(this.path)) {
+                        result = YueType.NO_IN_WHITE_LIST;
                     } else {
-                        result = "越权(和原始数据包大小一样, 且没在白名单)";
+                        result = YueType.YES_SAME_SAME_NOT_IN_WHITE_LIST;
                     }
                 } else {
-                    result = "没越权(和原始数据包大小不一样)";
+                    result = YueType.NO_SIZE_NOT_SAME;
                 }
-            } else if (this.responseType_d1 == ResponseType.AUTH_FAILURE) {
-                result = "没越权(返回了鉴权失败)";
-            } else if (this.responseType_d1 == ResponseType.API_ERROR) {
-                result = "越权(接口返回了失败,分析一下为啥)";
+            } else if (this.d1ResponseType == ResponseType.AUTH_FAILURE) {
+                result = YueType.NO_AUTHENTICATION;
+            } else if (this.d1ResponseType == ResponseType.API_ERROR) {
+                result = YueType.YES_API_ERROR;
             } else {
-                result = "越权(接口响应分类成Other了)";
+                result = YueType.YES_IMPOSSIBLE;
             }
             return result;
         }
 
-        private String calD2YueResult() {
-            String result = "";
-            if (this.responseType_d2 == ResponseType.SUCCESS) {
-                if (Integer.parseInt(this.low2_len_data) == this.original_len) {
-                    if (isInWhiteList(this.url)) {
-                        result = "没越权(在白名单中)";
+        private YueType calD2YueResult() {
+            YueType result;
+            if (this.d2ResponseType == ResponseType.SUCCESS) {
+                if (this.d2Len == this.originalLen) {
+                    if (isInLowWhiteList(this.path)) {
+                        result = YueType.NO_IN_WHITE_LIST;
                     } else {
-                        result = "越权(和原始数据包大小一样, 且没在白名单)";
+                        result = YueType.YES_SAME_SAME_NOT_IN_WHITE_LIST;
                     }
                 } else {
-                    result = "没越权(和原始数据包大小不一样)";
+                    result = YueType.NO_SIZE_NOT_SAME;
                 }
-            } else if (this.responseType_d2 == ResponseType.AUTH_FAILURE) {
-                result = "没越权(返回了鉴权失败)";
-            } else if (this.responseType_d2 == ResponseType.API_ERROR) {
-                result = "越权(接口返回了失败,分析一下为啥)";
+            } else if (this.d2ResponseType == ResponseType.AUTH_FAILURE) {
+                result = YueType.NO_AUTHENTICATION;
+            } else if (this.d2ResponseType == ResponseType.API_ERROR) {
+                result = YueType.YES_API_ERROR;
             } else {
-                result = "越权(接口响应分类成Other了)";
+                result = YueType.YES_IMPOSSIBLE;
             }
             return result;
         }
 
-        private String calUnauthorizedYueResult() {
-            String result = "";
-            if (this.responseType_unauthorized == ResponseType.SUCCESS) {
-                if (isInWhiteList(this.url)) {
-                    result = "没越权(在白名单中)";
+        private YueType calUnauthorizedYueResult() {
+            YueType result;
+            if (this.unauthorizedResponseType == ResponseType.SUCCESS) {
+                if (isInUnauthorizedWhiteList(this.path)) {
+                    result = YueType.NO_IN_WHITE_LIST;
                 } else {
-                    result = "越权(和原始数据包大小一样, 且没在白名单)";
+                    result = YueType.YES_NOT_SUCCESS_IF_NO_LOGIN;
                 }
-            } else if (this.responseType_unauthorized == ResponseType.AUTH_FAILURE) {
-                result = "没越权(返回了鉴权失败)";
-            } else if (this.responseType_unauthorized == ResponseType.API_ERROR) {
-                result = "越权(接口返回了失败,分析一下为啥)";
+            } else if (this.unauthorizedResponseType == ResponseType.AUTH_FAILURE) {
+                result = YueType.NO_AUTHENTICATION;
+            } else if (this.unauthorizedResponseType == ResponseType.API_ERROR) {
+                result = YueType.YES_API_ERROR;
             } else {
-                result = "越权(接口响应分类成Other了)";
+                result = YueType.YES_IMPOSSIBLE;
             }
             return result;
         }
 
-        private boolean isInWhiteList(String url) {
+        private boolean isInLowWhiteList(String path) {
+            boolean fullMatch = lowUrlWhiteSet.contains(path);
+            if (fullMatch) {
+                return true;
+            } else {
+                for (String pattern : lowUrlWhiteSet) {
+                    if (path.matches(pattern)) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        private boolean isInUnauthorizedWhiteList(String path) {
+            boolean fullMatch = unauthorizedUrlWhiteSet.contains(path);
+            if (fullMatch) {
+                return true;
+            } else {
+                for (String pattern : unauthorizedUrlWhiteSet) {
+                    if (path.matches(pattern)) {
+                        return true;
+                    }
+                }
+            }
             return false;
         }
 
