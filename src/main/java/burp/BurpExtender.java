@@ -114,7 +114,7 @@ public class BurpExtender
                     hintLabels.add(new JLabel(value.getHint()));
                 }
                 final JCheckBox enableCkb = new JCheckBox("启动插件");
-                conclusionCkb = new JCheckBox("自动结论");
+                conclusionCkb = new JCheckBox("自动结论", true);
                 final JCheckBox chkbox2 = new JCheckBox("启动万能cookie");
                 JLabel hostWhiteListLabel = new JLabel("如果需要多个域名加白请用,隔开");
                 final JTextField hostWhiteListTextField = new JTextField("填写白名单域名");
@@ -122,16 +122,16 @@ public class BurpExtender
                 JButton clearListBtn = new JButton("清空列表");
                 final JButton enableHostWhiteListBtn = new JButton("启动白名单");
 
-                JLabel d1HeaderLabel = new JLabel("越权(对应低权限数据包)：填写低权限认证信息,将会替换或新增");
+                JLabel d1HeaderLabel = new JLabel("越权:替换<低权限数据包>的header");
                 final JTextArea d1HeaderTextArea = new JTextArea("Cookie: JSESSIONID=test;UUID=1; userid=admin\nAuthorization: Bearer test", 5, 30);
                 JScrollPane d1HeaderScrollPane = new JScrollPane(d1HeaderTextArea);
 
                 // 低权限数据包2的改动, 配置区
-                JLabel d2HeaderLabel = new JLabel("越权(对应低权限数据包2)：填写低权限认证信息,将会替换或新增");
+                JLabel d2HeaderLabel = new JLabel("越权:替换<低权限数据包2>的header");
                 final JTextArea d2HeaderTextArea = new JTextArea("Cookie: JSESSIONID=test;UUID=2; userid=normal\nAuthorization: Bearer test", 5, 30);
                 JScrollPane d2HeaderScrollPane = new JScrollPane(d2HeaderTextArea);
 
-                JLabel unauthorizedHeaderLabel = new JLabel("未授权：将移除下列头部认证信息,区分大小写");
+                JLabel unauthorizedHeaderLabel = new JLabel("未授权:移除<未授权数据包>的header");
                 final JTextArea unauthorizedHeaderTextArea = new JTextArea("Cookie\nAuthorization\nToken", 5, 30);
                 JScrollPane unauthorizedHeaderScrollPane = new JScrollPane(unauthorizedHeaderTextArea);
 
@@ -139,14 +139,15 @@ public class BurpExtender
                 final JTextArea otherConfigTextArea = new JTextArea("{\n}", 5, 30);
                 JScrollPane otherConfigScrollPane = new JScrollPane(otherConfigTextArea);
 
-                JLabel lowUrlWhiteListLabel = new JLabel("低权限不算越权的url白名单");
+                JLabel lowUrlWhiteListLabel = new JLabel("不算越权的url白名单(正则)<低权限数据包,低权限数据包2>");
                 final JTextArea lowUrlWhiteListTextArea = new JTextArea("", 5, 30);
                 JScrollPane lowUrlWhiteListScrollPane = new JScrollPane(lowUrlWhiteListTextArea);
 
-                JLabel unauthorizedUrlWhiteListLabel = new JLabel("未授权不算越权的url白名单");
+                JLabel unauthorizedUrlWhiteListLabel = new JLabel("不算越权的url白名单(正则)<未授权数据包>");
                 final JTextArea unauthorizedUrlWhiteListTextArea = new JTextArea("", 5, 30);
                 JScrollPane unauthorizedUrlWhiteListScrollPane = new JScrollPane(unauthorizedUrlWhiteListTextArea);
 
+                JTabbedPane configTabs = new JTabbedPane();
                 JPanel headerPanel = new JPanel();
                 headerPanel.add(d1HeaderLabel);
                 headerPanel.add(d1HeaderScrollPane);
@@ -154,27 +155,40 @@ public class BurpExtender
                 headerPanel.add(d2HeaderScrollPane);
                 headerPanel.add(unauthorizedHeaderLabel);
                 headerPanel.add(unauthorizedHeaderScrollPane);
-                headerPanel.add(otherConfigLabel);
-                headerPanel.add(otherConfigScrollPane);
-                headerPanel.add(lowUrlWhiteListLabel);
-                headerPanel.add(lowUrlWhiteListScrollPane);
-                headerPanel.add(unauthorizedUrlWhiteListLabel);
-                headerPanel.add(unauthorizedUrlWhiteListScrollPane);
-                headerPanel.setLayout(new GridLayout(12, 1, 0, 0)); // 低权限数据包2的改动, 5增加到7
+//                headerPanel.add(otherConfigLabel);
+//                headerPanel.add(otherConfigScrollPane);
+                headerPanel.setLayout(new GridLayout(6, 1, 0, 0)); // 低权限数据包2的改动, 5增加到7
+
+                JPanel respPanel = new JPanel();
+                JLabel authFailLabel = new JLabel("响应包含以下关键字,判定成鉴权失败的请求");
+                final JTextArea authFailTextArea = new JTextArea("", 5, 30);
+                JScrollPane authFailScrollPane = new JScrollPane(authFailTextArea);
+                respPanel.add(authFailLabel);
+                respPanel.add(authFailScrollPane);
+                respPanel.add(lowUrlWhiteListLabel);
+                respPanel.add(lowUrlWhiteListScrollPane);
+                respPanel.add(unauthorizedUrlWhiteListLabel);
+                respPanel.add(unauthorizedUrlWhiteListScrollPane);
+                respPanel.setLayout(new GridLayout(6, 1, 0, 0));
+
+                configTabs.addTab("替换header", headerPanel);
+                configTabs.addTab("自动判断越权", respPanel);
 
                 enableCkb.addItemListener(e -> {
                     if (enableCkb.isSelected()) {
                         String d1HeaderStr = defaultIfBlank(d1HeaderTextArea.getText(), "");
-                        BurpExtender.this.d1HeaderList = Arrays.asList(d1HeaderStr.split(","));
+                        BurpExtender.this.d1HeaderList = Arrays.asList(d1HeaderStr.split("\n"));
                         String d2HeaderStr = defaultIfBlank(d2HeaderTextArea.getText(), "");
-                        BurpExtender.this.d2HeaderList = Arrays.asList(d2HeaderStr.split(","));
+                        BurpExtender.this.d2HeaderList = Arrays.asList(d2HeaderStr.split("\n"));
                         String unauthorizedHeaderStr = defaultIfBlank(unauthorizedHeaderTextArea.getText(), "");
-                        BurpExtender.this.unauthorizedHeaderList = Arrays.asList(unauthorizedHeaderStr.split(","));
+                        BurpExtender.this.unauthorizedHeaderList = Arrays.asList(unauthorizedHeaderStr.split("\n"));
                         BurpExtender.this.otherConfig = otherConfigTextArea.getText();
                         String unauthorizedUrlText = defaultIfBlank(unauthorizedUrlWhiteListTextArea.getText(), "");
                         BurpExtender.unauthorizedUrlWhiteSet = new HashSet<>(Arrays.asList(unauthorizedUrlText.split("\n")));
                         String lowUrlText = defaultIfBlank(lowUrlWhiteListTextArea.getText(), "");
                         BurpExtender.lowUrlWhiteSet = new HashSet<>(Arrays.asList(lowUrlText.split("\n")));
+                        String authFailText = defaultIfBlank(authFailTextArea.getText(), "");
+                        BurpExtender.this.classifier.setAuthFailKeywords(new HashSet<>(Arrays.asList(authFailText.split("\n"))));
 
                         BurpExtender.this.switchs = 1;
                         disableTextArea(d1HeaderTextArea);
@@ -183,6 +197,7 @@ public class BurpExtender
                         disableTextArea(otherConfigTextArea);
                         disableTextArea(lowUrlWhiteListTextArea);
                         disableTextArea(unauthorizedUrlWhiteListTextArea);
+                        disableTextArea(authFailTextArea);
                     } else {
                         BurpExtender.this.switchs = 0;
                         enableTextArea(d1HeaderTextArea);
@@ -191,6 +206,7 @@ public class BurpExtender
                         enableTextArea(otherConfigTextArea);
                         enableTextArea(lowUrlWhiteListTextArea);
                         enableTextArea(unauthorizedUrlWhiteListTextArea);
+                        enableTextArea(authFailTextArea);
                     }
                 });
 
@@ -279,7 +295,7 @@ public class BurpExtender
 
                 JSplitPane rightSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
                 rightSplitPane.setTopComponent(jps);
-                rightSplitPane.setBottomComponent(headerPanel);
+                rightSplitPane.setBottomComponent(configTabs);
 
                 BurpExtender.this.splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
                 BurpExtender.this.splitPane.setLeftComponent(leftSplitPanes);
@@ -735,6 +751,12 @@ public class BurpExtender
         }
 
         public void calculateYueResult() {
+            if ("OPTIONS".equals(this.Method)) {
+                this.d1YueResult = "忽略";
+                this.unauthorizedYueResult = "忽略";
+                this.d2YueResult = "忽略";
+                return;
+            }
             if (originResponseType != ResponseType.SUCCESS) {
                 this.d1YueResult = "先确保原始数据包成功";
                 this.unauthorizedYueResult = "先确保原始数据包成功";

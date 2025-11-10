@@ -5,6 +5,7 @@ import burp.IExtensionHelpers;
 import burp.IHttpRequestResponsePersisted;
 import burp.IResponseInfo;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
@@ -13,7 +14,7 @@ import java.util.Set;
 public class ResponseClassifier {
     private final IBurpExtenderCallbacks callbacks;
     private final IExtensionHelpers helpers;
-
+    private Set<String> authFailKeywords;
     // 成功状态码
     private static final Set<Integer> SUCCESS_CODES;
 
@@ -103,18 +104,13 @@ public class ResponseClassifier {
     private boolean containsAuthFailureIndicators(IResponseInfo responseInfo, byte[] response) {
         // 获取响应体
         int bodyOffset = responseInfo.getBodyOffset();
-        String responseBody = helpers.bytesToString(
-                Arrays.copyOfRange(response, bodyOffset, response.length)
+        String responseBody = new String(
+                Arrays.copyOfRange(response, bodyOffset, response.length),
+                StandardCharsets.UTF_8
         ).toLowerCase();
 
         // 检查响应体中的鉴权失败关键词
-        List<String> authKeywords = Arrays.asList(
-                "unauthorized", "forbidden", "access denied", "authentication",
-                "login", "token", "api key", "invalid credential", "no permission",
-                "权限", "认证", "登录", "令牌"
-        );
-
-        for (String keyword : authKeywords) {
+        for (String keyword : authFailKeywords) {
             if (responseBody.contains(keyword)) {
                 return true;
             }
@@ -179,6 +175,10 @@ public class ResponseClassifier {
             default:
                 return "未知分类";
         }
+    }
+
+    public void setAuthFailKeywords(Set<String> authFailKeywords) {
+        this.authFailKeywords = authFailKeywords;
     }
 
     // 响应类型枚举
